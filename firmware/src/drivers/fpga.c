@@ -2991,9 +2991,11 @@ void fpga_set_meter_mux(bool enable)
 #define FPGA_ACQ_REARM_DEFAULT 0
 #endif
 static volatile bool    acq_rearm_enable = (FPGA_ACQ_REARM_DEFAULT != 0);
-/* Reg 0x01 value currently in force. 0x08 = 5.00 MS/s, what the arm block
- * writes at config time; the re-arm must rewrite THIS, not a constant, or it
- * would silently undo any timebase the UI or the shell has selected. */
+/* Reg 0x01 value currently in force. 0x08 is what the arm block writes at
+ * config time; the re-arm must rewrite THIS, not a constant, or it would
+ * silently undo any timebase the UI or the shell has selected. (0x08's
+ * actual rate is an open question — EXP-12 withdrew every figure this bench
+ * published for it; unit #2 measures 5.00 MS/s there. See scope_timebase.c.) */
 static volatile uint8_t acq_rate_idx     = 0x08;
 
 /* ── USART2 late bring-up (2026-08-17) ───────────────────────────────────
@@ -3135,6 +3137,10 @@ static void fpga_warmtest_acq_task(void *pv)
 {
     (void)pv;
     uint32_t edges_consumed = 0;   /* pc0_edges value at our last pair read */
+    uint8_t acq_rate_written = 0x08;   /* last value actually written to reg
+                                          0x01, for change detection below.
+                                          Seeded with the arm block's
+                                          config-time write. */
     for (;;) {
         if (!fpga.initialized || fpga.bus_released) {
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -3202,10 +3208,10 @@ static void fpga_warmtest_acq_task(void *pv)
                 /* Free-run poll: fall through and read the live buffer. Pace
                  * to ~30 Hz so the display (its own ~50 ms frame loop is the
                  * real cap) stays smooth without spinning SPI. NOTE this is
-                 * REFRESH rate, not SAMPLE rate — horizontal measurements
-                 * depend on the in-buffer sample clock, still uncontrolled
-                 * (dev plan F4); a faster refresh gives more updates, not more
-                 * correct time bases. */
+                 * REFRESH rate, not SAMPLE rate — the in-buffer sample clock
+                 * is reg 0x01, selected by the UI knob via acq_rate_idx (see
+                 * the apply-on-change write below); a faster refresh gives
+                 * more updates, not more correct time bases. */
                 vTaskDelay(pdMS_TO_TICKS(FPGA_AUTO_CADENCE_MS));
             } else {
                 /* NORMAL/SINGLE, no trigger this window: hold the last trace.
@@ -3263,9 +3269,20 @@ static void fpga_warmtest_acq_task(void *pv)
          * pair, which completes the capture cycle and starts the next one.
          * Placed AFTER the accept/reject logic so a rejected frame still
          * re-arms — otherwise one bad read would wedge acquisition, which is
-         * the deadlock this task's fallback path exists to avoid. */
-        if (acq_rearm_enable)
+         * the deadlock this task's fallback path exists to avoid.
+         *
+         * With re-arm OFF, a rate CHANGE must still reach the engine: the UI
+         * timebase knob and the `fpga rate` shell command only set
+         * acq_rate_idx, and until 2026-08-19 nothing ever wrote it in
+         * free-run — the knob was display-only. One write per change, from
+         * this task (the bus owner), not from the UI path; a write per CYCLE
+         * would be the re-arm itself, which stays opt-in pending its A/B.
+         * Unit #2 (issue #18) runs rate changes against a live free-running
+         * engine this same way — a CS-framed `01 <idx>` mid-run — without
+         * stalling capture. */
+        if (acq_rearm_enable || acq_rate_idx != acq_rate_written)
             fpga_scope_write_reg(0x01, acq_rate_idx);
+        acq_rate_written = acq_rate_idx;
 
         /* Bound the read rate lightly; the display's own 50 ms frame loop
          * caps rendering, so reading faster than it draws only costs SPI

@@ -18,6 +18,7 @@
 #include "font.h"
 #include "scope_state.h"
 #include "scope_cal.h"
+#include "scope_timebase.h"
 #include "signal_gen.h"
 #include "theme.h"
 #include "math_channel.h"
@@ -655,6 +656,9 @@ uint8_t input_handle_button(button_id_t button, QueueHandle_t dq)
         }
         else if (current_mode == MODE_OSCILLOSCOPE) {
             scope_adjust_timebase(ss, -1);
+            /* Publish the mapped rate code; the acquisition task owns the
+             * SPI3 bus and performs the actual reg-0x01 write (fpga.c). */
+            fpga_acq_rate_idx_set(scope_timebase_reg_code(ss->timebase_idx));
             snprintf(pb, sizeof(pb), "H=%s/div",
                      timebase_table[ss->timebase_idx].label);
             popup_and_redraw(dq, pb);
@@ -713,6 +717,7 @@ uint8_t input_handle_button(button_id_t button, QueueHandle_t dq)
         }
         else if (current_mode == MODE_OSCILLOSCOPE) {
             scope_adjust_timebase(ss, 1);
+            fpga_acq_rate_idx_set(scope_timebase_reg_code(ss->timebase_idx));
             snprintf(pb, sizeof(pb), "H=%s/div",
                      timebase_table[ss->timebase_idx].label);
             popup_and_redraw(dq, pb);

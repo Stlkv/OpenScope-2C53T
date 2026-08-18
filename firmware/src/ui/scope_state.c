@@ -83,8 +83,11 @@ void scope_state_init(scope_state_t *s)
     s->trigger.source = TRIG_SRC_CH1;
     s->trigger.level  = 0;
 
-    /* Timebase: 50us/div */
-    s->timebase_idx = 12;     /* 50us */
+    /* Timebase: matches the hardware. The FPGA arm block writes rate code
+     * 0x08 at config time (fpga.c), and scope_timebase.c maps the "5us"
+     * entry to that code — so the label the user first sees is the code the
+     * engine is actually running, instead of an unrelated "50us". */
+    s->timebase_idx = 9;      /* 5us */
 
     /* Running */
     s->running = true;

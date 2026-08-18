@@ -17,6 +17,7 @@
 #include "scope_state.h"
 #include "scope_measure.h"
 #include "scope_cal.h"
+#include "scope_timebase.h"
 #include "math_channel.h"
 #include "persistence.h"
 #include "fpga.h"
@@ -331,6 +332,33 @@ static void fmt_volts(char *b, size_t n, float v)
         snprintf(b, n, "%u.%02uV", mv / 1000u, (mv % 1000u) / 10u);
 }
 
+/* Frequency with Hz/kHz ranging, same integer-math discipline as fmt_volts.
+ * (No MHz arm: with the measured-rate gate in scope_timebase.c, the largest
+ * printable frequency today is fs/2 at code 0x0E, about 31 kHz.) */
+static void fmt_freq(char *b, size_t n, float hz)
+{
+    if (hz < 0.0f) hz = 0.0f;
+    if (hz < 1000.0f) {
+        fmt_tenths(b, n, hz, "Hz");
+    } else {
+        unsigned h = (unsigned)(hz + 0.5f);              /* whole Hz, rounded */
+        snprintf(b, n, "%u.%02ukHz", h / 1000u, (h % 1000u) / 10u);
+    }
+}
+
+/* A time interval with us/ms/s ranging, rounded once at the chosen unit. */
+static void fmt_seconds(char *b, size_t n, float s)
+{
+    if (s < 0.0f) s = 0.0f;
+    unsigned us = (unsigned)(s * 1e6f + 0.5f);           /* whole us, rounded */
+    if (us < 1000u)
+        snprintf(b, n, "%uus", us);
+    else if (us < 1000000u)
+        snprintf(b, n, "%u.%02ums", us / 1000u, (us % 1000u) / 10u);
+    else
+        snprintf(b, n, "%u.%02us", us / 1000000u, (us % 1000000u) / 10000u);
+}
+
 /*
  * Vertical calibration now lives in scope_cal.c, per CHANNEL as well as per
  * range, because the two channels have different frontends and measure
@@ -393,12 +421,13 @@ _Static_assert(SCOPE_CAL_RANGE_COUNT == VDIV_COUNT,
  * Measured with a single transform, bin tracks frequency linearly from 100 Hz
  * to 3.5 kHz with R^2 = 0.9990 at reg 0x01 = 0x10, giving fs = 14,890 S/s.
  *
- * So the horizontal axis is a real time axis; what is missing is a per-code
- * sample-rate table of the same kind scope_cal.c holds for volts, plus the
- * plumbing to tell this function which reg-0x01 code is live. Until that
- * exists, printing Hz would mean multiplying through an ASSUMED rate, which is
- * the invention this function was written to remove. Period stays in samples
- * and Freq stays blank on purpose.
+ * So the horizontal axis is a real time axis, and as of 2026-08-19 the
+ * per-code sample-rate table exists: scope_timebase.c, gated exactly like
+ * the volts table. fpga_acq_rate_idx_get() says which reg-0x01 code is
+ * live; scope_timebase_fs_hz() returns its measured rate, or 0.0f for a
+ * code this bench has not measured — and 0.0f means Period stays in
+ * samples and Freq stays blank, because printing Hz through an ASSUMED
+ * rate is the invention this function was written to remove.
  */
 static void draw_measurement_badges(const scope_state_t *ss, const theme_t *th)
 {
@@ -415,8 +444,16 @@ static void draw_measurement_badges(const scope_state_t *ss, const theme_t *th)
     uint16_t x = 2;
     uint16_t y1 = BADGE_ROW_Y;
 
-    /* No timebase => no Hz. Deliberately blank, not estimated. */
-    draw_one_badge(x, y1, "Freq", MEAS_NA, na, th);
+    /* Hz only through a MEASURED rate for the live reg-0x01 code
+     * (scope_timebase.c); fs == 0 => blank, not estimated. */
+    const float fs = scope_timebase_fs_hz(fpga_acq_rate_idx_get());
+
+    if (have1 && m1.period_valid && fs > 0.0f) {
+        fmt_freq(buf, sizeof(buf), fs / m1.period_samples);
+        draw_one_badge(x, y1, "Freq", buf, th->ch1, th);
+    } else {
+        draw_one_badge(x, y1, "Freq", MEAS_NA, na, th);
+    }
     x += BADGE_W + 2;
 
     /* Calibrated ranges show volts; all others fall back to ADC counts. */
@@ -454,8 +491,11 @@ static void draw_measurement_badges(const scope_state_t *ss, const theme_t *th)
     uint16_t y2 = BADGE_ROW2_Y;
 
     if (have1 && m1.period_valid) {
-        snprintf(buf, sizeof(buf), "%usmp",
-                 (unsigned)(m1.period_samples + 0.5f));
+        if (fs > 0.0f)
+            fmt_seconds(buf, sizeof(buf), m1.period_samples / fs);
+        else
+            snprintf(buf, sizeof(buf), "%usmp",
+                     (unsigned)(m1.period_samples + 0.5f));
         draw_one_badge(x, y2, "Per", buf, th->ch1, th);
     } else {
         draw_one_badge(x, y2, "Per", MEAS_NA, na, th);

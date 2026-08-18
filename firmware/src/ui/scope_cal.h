@@ -76,13 +76,12 @@
  * - Not offset. This is gain only. The zero point is set by the per-channel
  *   vertical-offset reference (DAC1/PA4 for CH1, TMR13/PA6 for CH2) and is
  *   re-centered per range by `fpga scope center`.
- * - Not horizontal. There is no sample-rate table here yet. (The claim that
- *   "the capture does not resolve frequency at all" was WITHDRAWN by EXP-10 on
- *   2026-08-18 — it was a double FFT in the measuring script, not a hardware
- *   defect. The time axis is linear and measurable: R^2 = 0.9990 over
- *   100 Hz - 3.5 kHz, fs = 14,890 S/s at reg 0x01 = 0x10.) Seconds need the
- *   same treatment volts just got: measure the rate per reg-0x01 code, tier
- *   it, and refuse to print when there is no entry.
+ * - Not horizontal. The sample-rate table lives in scope_timebase.c, built
+ *   2026-08-19 to this header's own prescription: the rate is measured per
+ *   reg-0x01 code, tiered, and callers refuse to print seconds/Hz when
+ *   there is no entry. (The claim that "the capture does not resolve
+ *   frequency at all" was WITHDRAWN by EXP-10 on 2026-08-18 — it was a
+ *   double FFT in the measuring script, not a hardware defect.)
  */
 
 #ifndef SCOPE_CAL_H
