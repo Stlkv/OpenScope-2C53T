@@ -34,6 +34,7 @@ concrete.
 |---|---|---|---|
 | Cold-boot FPGA config | S2 | — | Regression guard on the config path; hardware-SPI gap stays a research thread, not a spec |
 | Live capture CH1 | S2 | — | Guard: scripted capture acceptance in `bench.py` |
+| Acquisition record integrity | S1 (known defect) | *needed* | The record is not time-contiguous at its edges — stale ~one-read-cadence data at indices ~32–96 / ~864–928 (EXP-22). The display trigger steps over it (`SEAM_GUARD`); every whole-buffer consumer still eats it. Root cause open; blocks FFT-live from being trustworthy |
 | Live capture CH2 | S1 | — | TMR13/PA6 offset bring-up (`guest-coldtrace-ch2`), then re-run the attenuator ladder |
 | Vertical scale | S3 | — | S4 blocked on a calibrated source (`SCOPE_CAL_SOURCE_SCALE`) — Help Wanted #3b |
 | Horizontal scale | S3 | — | Codes 0x09–0x0C need a faster source; 0x06–0x08 need the narrow-field/roll-mode hypothesis tested |
@@ -71,7 +72,7 @@ concrete.
 | Settings persistence | S2 (commissioned 2026-08-20) | [settings-persistence](platform/settings-persistence.md) | S3: the "bug" was an unthrown build interlock (`c57394c`); next is a power-cycle regression check in the bench script + surfacing `saves_failed` in the UI. Audit P0.4 (silent W25Q write failure) is the open honesty gap |
 | Screenshot capture | S1 | — | S2: pull a BMP off the device and look at it (note audit P3: BTN_SAVE currently shows "SAVED #n" without writing anything) |
 | Structural hardening | plan exists | [audit 2026-08-20](../structural_audit_2026-08-20.md) | P0 ladder: SPI3 timeout-as-success, W25Q silent-success, bus ownership, torn capture buffers, pre-scheduler queue overflow |
-| Rendering path | S1 | — | Compositor + redraw gate landed 2026-08-19; S3 guard exists for the gate; graticule question above is the S4 item |
+| Rendering path | S3 | — | Display stability guarded on hardware by EXP-22 (`scripts/exp22_stability.py`, 11/11, negative control); graticule question above is the S4 item |
 | USB CDC shell | S1 (build-dependent) | — | Enumeration correlates exactly with which FPGA config path the build runs — replicated on a second unit (PR #13); mechanism unestablished — research thread |
 | PC export / remote view | S-none | — | Issue #10 ask; wishlist Appendix B has the format lead |
 

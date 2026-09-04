@@ -12,7 +12,7 @@ The FNIRSI 2C53T is a capable $75 handheld 3-in-1 instrument held back by buggy 
 
 > ### ⚠️ This is development firmware — don't depend on it for real measurements
 >
-> **The scope captures, but it is not yet a *usable* instrument.** There is **no timebase control** — each hardware sweep is a ~microsecond, 1024-sample snapshot refreshed about 34 times a second, so the trace faithfully tracks slow signals as a moving level and anything above roughly 15 Hz aliases into nonsense. **Vertical calibration is a placeholder** — the baseline sits around 55 and the trace clips against the top of the plot. And the **measurement badges on the scope screen are hardcoded strings, not measurements** — they will show `1.00kHz` / `707mV` / `50.0%` no matter what you probe. It is a real oscilloscope with a vertical axis and no horizontal knob. If you need a working scope today, stay on stock.
+> **The scope captures, and both axes now carry measured numbers — but it is validated on one physical unit.** Timebase control reaches the hardware and 8 of 21 rate codes are bench-measured; the rest display `--` rather than a guess. Vertical ranges 5/6/7 are measured and cross-validated four ways, 4/8/9 are provisional and marked `~`, and 0–3 rail and fall back to honest ADC counts. The measurement badges are real measurements, not placeholders. What is *not* settled: **absolute vertical scale** traces to a bench source never checked against a reference (the error is uniform and recoverable with one constant), the **vertical graticule autoscales by default** so a division does not mean the printed volts/div, **CH2 has one usable attenuator tap**, and the acquisition record carries stale data at its edges. If you need a scope you can trust unsupervised today, stay on stock.
 >
 > **The multimeter works, but treat it as unverified on your unit.** The decode is accurate within a few percent on our bench device, but the low-Ω calibration factor is *per-device* and currently hardcoded to that one unit — so absolute readings on your hardware have not been checked by anyone. **Use it alongside a known-good meter**, the way you would with any unfamiliar instrument, and don't trust it alone for anything that matters.
 >
@@ -20,7 +20,7 @@ The FNIRSI 2C53T is a capable $75 handheld 3-in-1 instrument held back by buggy 
 
 ## Current Status
 
-**Custom firmware runs on real hardware, and it captures.** On 2026-08-13, bench unit #1 powered on into this firmware, configured the FPGA over SSPI (status `0x00039020` → `0x0003F460`, `DONE_FINAL` set), armed the capture engine, and drew live traces from real ADC data on both channels — reproducibly across power cycles. Both axes now carry measured numbers: per-range volts/div on both channels (2026-08-18) and eight measured sample rates on the timebase ladder (2026-08-19), each cross-checked against an independent rig. Active development has moved to **wiring the layer above acquisition** — the FFT, math and measurement code that is written and tested but still fed synthetic input.
+**Custom firmware runs on real hardware, and it captures.** On 2026-08-13, bench unit #1 powered on into this firmware, configured the FPGA over SSPI (status `0x00039020` → `0x0003F460`, `DONE_FINAL` set), armed the capture engine, and drew live traces from real ADC data on both channels — reproducibly across power cycles. Both axes now carry measured numbers: per-range volts/div on both channels (2026-08-18) and eight measured sample rates on the timebase ladder (2026-08-19), each cross-checked against an independent rig. Active development has moved to **wiring the layer above acquisition**. The measurement badges now read from real captures; the FFT, math channels and protocol decoders are still written, host-tested, and fed synthetic input.
 
 ### Seeing live waveforms today
 
@@ -86,7 +86,7 @@ reviewable promotion-ladder spec per feature.
 | Multimeter | **S1** | Works, and is accurate within a few percent on DCV and resistance — but **not in `guest-coldtrace`**, which holds USART2 dark. The two do not currently coexist. |
 | Signal generator | **S1** | Reachable; output has never been characterised against an instrument. |
 | Screenshot capture (BMP) | **S1** | Has a call site and writes to flash. |
-| Rendering path | **S1** | Flicker-free column compositor with a redraw gate. The scope trace **autoscales** to fill the band, so the vertical graticule does not currently mean the volts/div the status bar prints. |
+| Rendering path | **S3** | Flicker-free column compositor with a redraw gate. Display stability is bench-measured through the real render path (EXP-22, 2026-09-03): both channels driven, amplitude/frequency/phase varied, 11/11 scenarios lock to ≤1 px, with an on-hardware negative control that correctly fails. The scope trace **autoscales** to fill the band, so the vertical graticule does not currently mean the volts/div the status bar prints — that is the remaining S4 item. |
 | FFT spectrum + waterfall | **S0** | Fed a synthetic 1 kHz square wave generated on the spot. |
 | Math channels | **S0** | Fed a hardcoded sine LUT and square wave. |
 | Bode plot | **S0** | A generated demo response of a first-order low-pass. |
