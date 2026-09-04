@@ -53,7 +53,7 @@ concrete.
 
 | Feature | Stage | Spec | Next |
 |---|---|---|---|
-| Multimeter in the scope build | S1 (dead in coldtrace) | [meter-in-the-scope-build](meter/meter-in-the-scope-build.md) | S1-in-coldtrace: find what the FPGA config kills, revive USART2 data |
+| Multimeter in the scope build | S1 (coldtrace, **DCV only**) | [meter-in-the-scope-build](meter/meter-in-the-scope-build.md) | Coexistence is done (EXP-23). Next: make `fpga_set_meter_mode()` run in coldtrace so the other 10 submodes are reachable at all — today they move the label and nothing else |
 | Manual range lock | S-none | — | Wishlist Tier 1 #2; spec after coexistence reaches S2 |
 | DCV >10 V | S1 (known-wrong) | — | Decimal-latch bug documented since 2026-04-04; folds into the coexistence spec's S4 |
 | Fuse current tester | S1 | — | Unvalidated against known loads |
