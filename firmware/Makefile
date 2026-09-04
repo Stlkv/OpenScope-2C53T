@@ -577,7 +577,7 @@ $(BUILD_DIR)/test_redraw_gate: tests/test_redraw_gate.c src/ui/redraw_gate.h | $
 test-redraw-gate: $(BUILD_DIR)/test_redraw_gate
 	$<
 
-.PHONY: all clean disasm size renode soak-test soak-quick flash flash-dfu bootloader flash-bootloader flash-all guest guest-warmtest guest-usart-silent emu test-meter-data test-meter-auto test-meter-voltage-wave test-fpga-meter-plan test-stock-meter-literals test-meter test-scope-measure test-scope-cal test-scope-timebase test-scope-freq test-redraw-gate test-config-persist guest-persist guest-caldump guest-coldtrace-slow guest-coldtrace-la guest-debugclk guest-configA-gap guest-configA-csdummy guest-configA-gapless guest-bringup guest-bringup-bb guest-bringup-bb-slow guest-coldtrace-hwspi guest-bringup-bb-faithful fpga-alt-header
+.PHONY: all clean disasm size renode soak-test soak-quick flash flash-dfu bootloader flash-bootloader flash-all guest guest-warmtest guest-usart-silent emu test-meter-data test-meter-auto test-meter-voltage-wave test-fpga-meter-plan test-stock-meter-literals test-meter test-scope-measure test-scope-cal test-scope-timebase test-scope-freq test-redraw-gate test-config-persist guest-persist guest-caldump guest-coldtrace-slow guest-coldtrace-la guest-debugclk guest-configA-gap guest-configA-csdummy guest-configA-gapless guest-bringup guest-bringup-bb guest-bringup-bb-slow guest-coldtrace-hwspi guest-bringup-bb-faithful fpga-alt-header guest-coldtrace-meter
 
 # ═══════════════════════════════════════════════════════════════════════════
 # BENCH / EXPERIMENT IMAGE INDEX                          (index added 2026-08-13)
@@ -901,6 +901,31 @@ guest-coldtrace-usart: clean all
 guest-coldtrace: CFLAGS += -DGUEST_BUILD -DFPGA_WARM_HANDOFF_TEST=1 -DFPGA_USART_SILENT_SCOPE=1 -DFPGA_CONFIG_B=1 -DFPGA_CONFIG_B_ARM=1
 guest-coldtrace: LDSCRIPT = ld/at32f403a_guest.ld
 guest-coldtrace: clean all
+
+# [M1 2026-09-04] guest-coldtrace-meter — coldtrace plus reachable meter submodes.
+#
+# EXP-23 measured the actual gap in guest-coldtrace: the meter is NOT dead (a
+# 1.61 V cell reads 1.6158 V while SPI3 acquisition keeps running), but all 11
+# submodes drive a bit-identical analog frontend and an identical TX frame,
+# because FPGA_WARM_HANDOFF_TEST no-ops fpga_set_meter_mode(). Only DC Voltage
+# is reachable, and only because that happens to be the posture it boots in.
+#
+# FPGA_METER_SUBMODES lets meter entry posture the frontend per submode, and
+# makes scope entry put the scope posture back (the frontend is shared). It
+# deliberately does NOT re-enable fpga_scope_reinit() or fpga_enter_scope_mode():
+# those also re-send USART sequences and reset data_ready, and this build's
+# configured/armed FPGA state is not something to spend on a mode switch.
+#
+# ⚠ ACCEPTANCE TEST BEFORE FOLDING THIS INTO guest-coldtrace — the frontend is
+# shared, so the risk is that a visit to the meter breaks the scope:
+#   1. scope captures (SPI3 OK climbing)                    <- must hold
+#   2. mode meter 0, cell on leads, reads correctly          <- EXP-23 baseline
+#   3. mode meter 6, `gpio scan` diff vs step 2 NON-EMPTY    <- the actual fix
+#   4. mode scope, SPI3 OK still climbing, trace still right <- the regression
+# Step 4 is the one that decides whether this ships.
+guest-coldtrace-meter: CFLAGS += -DGUEST_BUILD -DFPGA_WARM_HANDOFF_TEST=1 -DFPGA_USART_SILENT_SCOPE=1 -DFPGA_CONFIG_B=1 -DFPGA_CONFIG_B_ARM=1 -DFPGA_METER_SUBMODES=1
+guest-coldtrace-meter: LDSCRIPT = ld/at32f403a_guest.ld
+guest-coldtrace-meter: clean all
 
 # H7 confirmation (2026-08-26): coldtrace's warm-handoff + live-readout pipeline,
 # but config via HARDWARE-SPI at /2 (stock's write rate) instead of bit-bang. Tests
