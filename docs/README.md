@@ -9,6 +9,7 @@ Open-source replacement firmware for the FNIRSI 2C53T handheld oscilloscope / mu
 ## Top-Level
 
 - [Feature specs](specs/) — the plan: one promotion-ladder spec per feature, plus the catalog of what's missing and the community-demand audit
+- [Current dev plan (2026-09-12)](dev_plan_2026-09-12.md) — priority-ordered next steps after the EXP-25..28 meter session, plus the community queue
 - [Structural audit 2026-08-20](structural_audit_2026-08-20.md) — RTOS/reliability pass: bus ownership, torn buffers, silent-success error paths, decorative controls, dead weight — prioritized P0–P3
 - [Roadmap](roadmap.md) — design sections only (region layer, user cal, stretch tracks); status moved to the README maturity matrix + specs
 - [Button Manual](button_manual.md) — Physical button layout, navigation, emulator key bindings
