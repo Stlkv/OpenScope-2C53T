@@ -1010,8 +1010,10 @@ static void cmd_fpga_frame(const char *args)
         if (!*p) break;
 
         uint32_t val;
-        if (parse_int(p, &val) != 0 || val > 0xFF) {
-            usb_debug_printf("ERR: bad byte at '%s'\r\n", p);
+        /* HEX — matches `usart raw` and the examples in this command's own
+         * help, which decimal parsing would have rejected (EXP-23). */
+        if (parse_hex32(p, &val) != 0 || val > 0xFF) {
+            usb_debug_printf("ERR: bad hex byte at '%s'\r\n", p);
             return;
         }
 
@@ -2160,8 +2162,12 @@ static void cmd_fpga_cmd(const char *args)
         if (len >= (int)sizeof(cmd_str)) { usb_send_str("ERR\r\n"); return; }
         memcpy(cmd_str, args, len);
         cmd_str[len] = '\0';
-        if (parse_int(space + 1, &cmd_lo) != 0 || cmd_lo > 0xFF) {
-            usb_send_str("Usage: fpga cmd <hi> <lo>\r\n");
+        /* HEX, not parse_int(). FPGA command bytes are written in hex
+         * everywhere in this project; parsing them as decimal made
+         * `fpga cmd 05 14` transmit 0x050E and print a plausible
+         * confirmation of the wrong command (EXP-23). */
+        if (parse_hex32(space + 1, &cmd_lo) != 0 || cmd_lo > 0xFF) {
+            usb_send_str("Usage: fpga cmd <hi> <lo>   (HEX)\r\n");
             return;
         }
     } else {
@@ -2169,21 +2175,21 @@ static void cmd_fpga_cmd(const char *args)
         cmd_str[sizeof(cmd_str) - 1] = '\0';
     }
 
-    if (parse_int(cmd_str, &cmd_hi) != 0) {
-        usb_send_str("Usage: fpga cmd <hi> <lo>\r\n");
+    if (parse_hex32(cmd_str, &cmd_hi) != 0) {
+        usb_send_str("Usage: fpga cmd <hi> <lo>   (HEX)\r\n");
         return;
     }
 
     if (space == NULL) {
         /* Single combined value form: fpga cmd 0x0509 */
         if (cmd_hi > 0xFFFF) {
-            usb_send_str("Usage: fpga cmd <hi> <lo>\r\n");
+            usb_send_str("Usage: fpga cmd <hi> <lo>   (HEX)\r\n");
             return;
         }
         cmd_lo = cmd_hi & 0xFF;
         cmd_hi = (cmd_hi >> 8) & 0xFF;
     } else if (cmd_hi > 0xFF) {
-        usb_send_str("Usage: fpga cmd <hi> <lo>\r\n");
+        usb_send_str("Usage: fpga cmd <hi> <lo>   (HEX)\r\n");
         return;
     }
 
@@ -6981,9 +6987,9 @@ static const shell_cmd_t shell_cmds[] = {
     CMD_A("screen shadow", cmd_screen_shadow, 0,
           "screen shadow page [y]          Clear full-screen shadow capture\r\n"),
     CMD_A("fpga cmd", cmd_fpga_cmd, SC_NEEDARGS,
-          "fpga cmd <hi> <lo>              Send FPGA command bytes\r\n" "  e.g.: fpga cmd 0 9   (sends 0x00 0x09)\r\n" "        fpga cmd 0x0509 (sends 0x05 0x09)\r\n"),
+          "fpga cmd <hi> <lo>              Send FPGA command bytes (HEX)\r\n" "  e.g.: fpga cmd 05 14 (sends 0x05 0x14)\r\n" "        fpga cmd 0x0509 (sends 0x05 0x09)\r\n"),
     CMD_A("fpga frame", cmd_fpga_frame, SC_NEEDARGS,
-          "fpga frame <hi> <lo> [p1..p5 [ck]]  Build/send full 10-byte frame\r\n" "  e.g.: fpga frame 00 0B 01 00 00 00 00\r\n"),
+          "fpga frame <hi> <lo> [p1..p5 [ck]]  Build/send full 10-byte frame (HEX)\r\n" "  e.g.: fpga frame 00 0B 01 00 00 00 00\r\n"),
     CMD_V("fpga diag clear", cmd_fpga_diag_clear, SC_EXACT,
           "fpga diag clear                 Clear FPGA bench counters/state\r\n"),
     CMD_V("fpga selftest", cmd_fpga_selftest, SC_EXACT,

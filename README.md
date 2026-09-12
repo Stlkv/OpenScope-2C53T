@@ -44,7 +44,7 @@ python3 ../scripts/iap_flash.py     # MENU + tap Power → upgrade mode → dete
 
 Three caveats, stated plainly:
 
-- It is a **scope-only experimental image**. It holds USART2 dark, which is what the multimeter runs on, so the meter is inactive in this build.
+- The **multimeter works in this image, but only on DC Voltage.** Scope and meter run at the same time — bench-measured 2026-09-04 (EXP-23): a 1.61 V cell reads 1.6158 V while SPI3 acquisition keeps running. Selecting any *other* meter function silently does nothing, because the build no-ops the code that re-postures the analog frontend. The label changes; the hardware doesn't.
 - It is validated on **one physical unit**. Nobody has run it on a second 2C53T.
 - **It is not the default `make guest` boot path yet.** Folding it in is on the roadmap.
 

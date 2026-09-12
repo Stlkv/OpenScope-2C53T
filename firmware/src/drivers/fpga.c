@@ -625,6 +625,26 @@ static void spi3_pump_h2_record(const uint8_t *tx, uint32_t n)
  *     being tested.
  *
  * Bench procedure: docs/fpga_warm_handoff_test.md. Revert to 0 for normal builds. */
+/*
+ * FPGA_WARM_HANDOFF_TEST has always carried TWO independent meanings:
+ *   (a) "the FPGA is already configured — do not re-run config", and
+ *   (b) "this is a scope-only image — no-op every meter entry point".
+ * They were fused because the first build that needed (a) also wanted (b).
+ * A cold-configured build (FPGA_CONFIG_B) needs (a) and has no reason to
+ * inherit (b): it configured the part itself, so there is no stock-armed
+ * state to preserve.
+ *
+ * FPGA_METER_SUBMODES lifts (b) only. With it set, meter mode-entry re-postures
+ * the analog frontend for the selected submode and scope entry puts the scope
+ * posture back. Default 0 so every existing build is bit-identical.
+ * Measured gap it exists to close: EXP-23 (2026-09-04) — meter and scope
+ * coexist, but all 11 submodes drive an identical frontend and an identical
+ * TX frame, because fpga_set_meter_mode() returns before its first statement.
+ */
+#ifndef FPGA_METER_SUBMODES
+#define FPGA_METER_SUBMODES  0
+#endif
+
 #ifndef FPGA_WARM_HANDOFF_TEST
 #define FPGA_WARM_HANDOFF_TEST  0
 #endif
@@ -3177,6 +3197,23 @@ void fpga_set_meter_mux(bool enable)
      * (exit): UEN, dvom tasks, PC11, in that order. */
     fpga_usart_scope_enable(enable);
     if (enable) fpga_meter_needs_activation = true;
+
+#if FPGA_METER_SUBMODES
+    /*
+     * The analog frontend is SHARED. Once meter entry is allowed to posture it
+     * per submode (see FPGA_METER_SUBMODES), scope entry has to put the scope's
+     * posture back or the scope is wrong after any visit to the meter.
+     *
+     * Deliberately relays only: no USART sequence, no data_ready reset, and
+     * nothing that touches the FPGA's configured/armed state. fpga_scope_reinit()
+     * would do all three, and in a coldtrace build the arm state is the thing
+     * that took two months to obtain.
+     */
+    if (!enable) {
+        GPIOB->scr = PB11_MASK;   /* PB11 HIGH — FPGA active */
+        fpga_set_scope_frontend_ranges(scope_state_get());
+    }
+#endif
 }
 
 /* NOTE: deliberately OUTSIDE the FPGA_WARM_HANDOFF_TEST guard below. The debug
@@ -6075,9 +6112,10 @@ static void fpga_apply_meter_transition(uint8_t submode, bool wake_preamble)
 
 void fpga_set_meter_mode(uint8_t submode)
 {
-#if FPGA_WARM_HANDOFF_TEST
+#if FPGA_WARM_HANDOFF_TEST && !FPGA_METER_SUBMODES
     /* Warm-handoff: meter mode would re-posture PC11/relays and queue USART
-     * frames — leave the FPGA in the scope mode stock armed. */
+     * frames — leave the FPGA in the scope mode stock armed. Not applicable to
+     * a cold-configured build; see FPGA_METER_SUBMODES. */
     (void)submode;
     return;
 #endif
@@ -6095,7 +6133,7 @@ void fpga_set_meter_mode(uint8_t submode)
 
 void fpga_meter_reinit(uint8_t submode)
 {
-#if FPGA_WARM_HANDOFF_TEST
+#if FPGA_WARM_HANDOFF_TEST && !FPGA_METER_SUBMODES
     (void)submode;
     return;
 #endif
