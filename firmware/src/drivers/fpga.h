@@ -672,8 +672,20 @@ bool fpga_usart_tx_task_exists(void);
 /* Meter TX frame header A/B (EXP-25, issue #15). Default false = 00 00, the
  * header every measurement before 2026-09-12 was taken with. True = AA 55,
  * which Stlkv measured as the header the meter SoC actually requires. */
+/* usart_tx_queue item: bits 0-7 cmd_lo, 8-15 cmd_hi, bit 16 = OBEY.
+ * OBEY clear means "send this frame with the 00 00 header the meter ignores".
+ * That is not a hack — EXP-25 measured that the meter emits data frames in
+ * response to USART TRAFFIC, not to commands it accepts (header off, zero
+ * echoes, data still 6/s; transmit stopped, data 0/s). So the 4 Hz keepalive
+ * only has to make noise, and it must NOT be obeyed, or every poll re-triggers
+ * a measurement and autorange — audible as continuous relay clicking. */
+#define FPGA_TX_OBEY_BIT  (1U << 16)
+
 void fpga_meter_tx_header_set(bool aa55);
 bool fpga_meter_tx_header_get(void);
+
+/* Keepalive send: solicits a data frame without being obeyed. */
+BaseType_t fpga_send_cmd_keepalive(uint8_t cmd_high, uint8_t cmd_low);
 
 /*
  * Send one 2-byte command frame with the POLLED byte-level path, bypassing

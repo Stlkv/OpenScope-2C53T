@@ -95,7 +95,7 @@ volatile uint8_t  fpga_meter_adc_min_sample = 255;
 volatile uint8_t  fpga_meter_adc_max_sample;
 
 /* FreeRTOS handles */
-static QueueHandle_t     usart_tx_queue  = NULL;  /* 2-byte items: cmd_hi|cmd_lo */
+static QueueHandle_t     usart_tx_queue  = NULL;  /* 32-bit: hi|lo + OBEY bit16 */
 static QueueHandle_t     spi3_acq_queue  = NULL;  /* 1-byte trigger mode */
 
 typedef struct {
@@ -1197,10 +1197,11 @@ bool fpga_meter_tx_header_get(void)      { return meter_tx_header_aa55; }
  *
  * If you add a third transmit path, call this. Do not assemble bytes.
  */
-static void meter_build_tx_frame(uint8_t *frame, uint8_t cmd_hi, uint8_t cmd_lo)
+static void meter_build_tx_frame(uint8_t *frame, uint8_t cmd_hi, uint8_t cmd_lo,
+                                 bool obey)
 {
     memset(frame, 0, FPGA_TX_FRAME_SIZE);
-    if (meter_tx_header_aa55) {
+    if (meter_tx_header_aa55 && obey) {
         frame[0] = 0xAAU;
         frame[1] = 0x55U;
     }
@@ -1215,7 +1216,7 @@ static void usart2_send_cmd(uint8_t cmd_hi, uint8_t cmd_lo)
     uint8_t frame[FPGA_TX_FRAME_SIZE];
     fpga_record_tx_cmd(cmd_hi, cmd_lo);
     fpga.tx_count++;
-    meter_build_tx_frame(frame, cmd_hi, cmd_lo);
+    meter_build_tx_frame(frame, cmd_hi, cmd_lo, true);
     fpga_record_tx_frame(frame);
     usart2_send_frame(frame);
 }
@@ -1257,7 +1258,7 @@ static void fpga_scope_delay_ms(uint32_t ms)
 static void fpga_timed_send_cmd(uint8_t cmd_hi, uint8_t cmd_lo, uint32_t delay_ms)
 {
     if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING && usart_tx_queue != NULL) {
-        uint16_t item = ((uint16_t)cmd_hi << 8) | cmd_lo;
+        uint32_t item = ((uint32_t)cmd_hi << 8) | cmd_lo | FPGA_TX_OBEY_BIT;
 
         /* Scope reinit is a deliberate control path, so it's worth waiting
          * briefly for queue space instead of silently dropping commands. */
@@ -2423,13 +2424,14 @@ void SPI3_I2S3EXT_IRQHandler(void)
 static void fpga_usart_tx_task(void *pv)
 {
     (void)pv;
-    uint16_t cmd_item;
+    uint32_t cmd_item;
 
     for (;;) {
         xQueueReceive(usart_tx_queue, &cmd_item, portMAX_DELAY);
 
         uint8_t cmd_lo = cmd_item & 0xFF;
         uint8_t cmd_hi = (cmd_item >> 8) & 0xFF;
+        bool    obey   = (cmd_item & FPGA_TX_OBEY_BIT) != 0;
 
         /* Build TX frame through the SHARED builder. This block used to
          * assemble the bytes itself, which is how EXP-25 came to report a
@@ -2439,7 +2441,7 @@ static void fpga_usart_tx_task(void *pv)
         fpga.tx_index = 0;
         {
             uint8_t frame[FPGA_TX_FRAME_SIZE];
-            meter_build_tx_frame(frame, cmd_hi, cmd_lo);
+            meter_build_tx_frame(frame, cmd_hi, cmd_lo, obey);
             memcpy((void *)fpga.tx_frame, frame, FPGA_TX_FRAME_SIZE);
         }
         fpga_record_tx_frame((const uint8_t *)fpga.tx_frame);
@@ -2555,8 +2557,22 @@ static void fpga_send_meter_poll_sequence(uint8_t submode)
      * settling in status-20 transitional frames. Selector/config/apply words
      * belong to fpga_send_meter_mode_sequence(), not to the sample cadence.
      */
-    (void)fpga_send_cmd((uint8_t)(plan.start_word >> 8),
-                        (uint8_t)(plan.start_word & 0x00FFU));
+    /*
+     * KEEPALIVE, NOT A COMMAND (EXP-25, 2026-09-12).
+     *
+     * This fires 4x/second. Before the header fix every frame was discarded, so
+     * the cadence was never exercised against a meter that obeys. The moment
+     * the header became correct, each poll was accepted and re-triggered a
+     * measurement + autorange — continuous relay actuation, audible across the
+     * room, and real mechanical wear.
+     *
+     * The poll does not need to be obeyed. It only needs the wire to be busy:
+     * measured the same session, with the header off and NOT ONE command
+     * accepted, data frames still arrived at 6/s, and stopping transmit
+     * altogether took them to 0/s. So send it unobeyed.
+     */
+    (void)fpga_send_cmd_keepalive((uint8_t)(plan.start_word >> 8),
+                                  (uint8_t)(plan.start_word & 0x00FFU));
 }
 
 static void fpga_meter_poll_task(void *pv)
@@ -5584,7 +5600,7 @@ QueueHandle_t fpga_create_tasks(void)
     }
 
     /* Create queues */
-    usart_tx_queue = xQueueCreate(10, sizeof(uint16_t));
+    usart_tx_queue = xQueueCreate(10, sizeof(uint32_t));
     spi3_acq_queue = xQueueCreate(15, sizeof(uint8_t));
     meter_rx_queue = xQueueCreate(8, sizeof(fpga_meter_rx_event_t));
 
@@ -5663,12 +5679,22 @@ BaseType_t fpga_send_cmd(uint8_t cmd_high, uint8_t cmd_low)
      * always carried this same guard. */
     if (usart_tx_queue != NULL &&
         xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
-        uint16_t item = ((uint16_t)cmd_high << 8) | cmd_low;
+        uint32_t item = ((uint32_t)cmd_high << 8) | cmd_low | FPGA_TX_OBEY_BIT;
         return xQueueSend(usart_tx_queue, &item, 0);  /* non-blocking */
     }
     /* Fallback to polled if queue not created yet / scheduler not started */
     usart2_send_cmd(cmd_high, cmd_low);
     return pdTRUE;
+}
+
+BaseType_t fpga_send_cmd_keepalive(uint8_t cmd_high, uint8_t cmd_low)
+{
+    if (usart_tx_queue != NULL &&
+        xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        uint32_t item = ((uint32_t)cmd_high << 8) | cmd_low;  /* OBEY clear */
+        return xQueueSend(usart_tx_queue, &item, 0);
+    }
+    return pdFALSE;  /* keepalive is best-effort; never block the poll task */
 }
 
 bool fpga_usart_tx_task_exists(void)
