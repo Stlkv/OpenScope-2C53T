@@ -224,6 +224,13 @@ typedef struct {
     volatile uint8_t  tx_cmd_history_head;   /* Next history slot */
     volatile uint8_t  tx_cmd_history_count;  /* Valid history entries */
     volatile uint8_t  last_tx_frame[FPGA_TX_FRAME_SIZE]; /* Last full 10-byte USART frame sent */
+    /* Low byte of the last frame sent with OBEY set — i.e. the last frame the
+     * meter could actually have acted on. The echo validator MUST compare
+     * against this and not last_tx_frame[3]: the 4 Hz unobeyed keepalive
+     * overwrites last_tx_frame inside the ~250 ms window between a command and
+     * its echo, which made good echoes fail validation (EXP-27). */
+    volatile uint8_t  last_obeyed_tx_lo;
+    volatile bool     last_obeyed_tx_valid;
     volatile uint8_t  tx_frame_history[FPGA_TX_FRAME_HISTORY][FPGA_TX_FRAME_SIZE];
     volatile uint16_t tx_frame_history_tx_count[FPGA_TX_FRAME_HISTORY];
     volatile uint8_t  tx_frame_history_head;

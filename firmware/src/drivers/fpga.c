@@ -1204,6 +1204,9 @@ static void meter_build_tx_frame(uint8_t *frame, uint8_t cmd_hi, uint8_t cmd_lo,
     if (meter_tx_header_aa55 && obey) {
         frame[0] = 0xAAU;
         frame[1] = 0x55U;
+        /* Remember what the meter could have acted on, for echo validation. */
+        fpga.last_obeyed_tx_lo = cmd_lo;
+        fpga.last_obeyed_tx_valid = true;
     }
     frame[2] = cmd_hi;
     frame[3] = cmd_lo;
@@ -2381,7 +2384,10 @@ void USART2_IRQHandler(void)
                  */
                 memcpy((void *)fpga.last_rx_echo_frame, (const void *)fpga.rx_buf,
                        FPGA_RX_ECHO_FRAME_SIZE);
-                if (fpga.rx_buf[3] == fpga.last_tx_frame[3] &&
+                /* Validate against the last OBEYED command, not the last
+                 * frame sent — see fpga.last_obeyed_tx_lo (EXP-27). */
+                if (fpga.last_obeyed_tx_valid &&
+                    fpga.rx_buf[3] == fpga.last_obeyed_tx_lo &&
                     fpga.rx_buf[7] == 0xAAU) {
                     fpga.rx_echo_valid_count++;
                     fpga.echo_count++;
