@@ -44,7 +44,7 @@ python3 ../scripts/iap_flash.py     # MENU + tap Power → upgrade mode → dete
 
 Three caveats, stated plainly:
 
-- The **multimeter works in this image, but only on DC Voltage.** Scope and meter run at the same time — bench-measured 2026-09-04 (EXP-23): a 1.61 V cell reads 1.6158 V while SPI3 acquisition keeps running. Selecting any *other* meter function silently does nothing, because the build no-ops the code that re-postures the analog frontend. The label changes; the hardware doesn't.
+- The **multimeter works in this image, but only on DC Voltage.** Scope and meter run at the same time — bench-measured 2026-09-04 (EXP-23): a 1.61 V cell reads 1.6158 V while SPI3 acquisition keeps running. Selecting any *other* meter function still does nothing useful. The reason changed on 2026-09-07 and is worth stating precisely: the submode code now runs and the frontend really does move (EXP-24), but [@Stlkv](https://github.com/Stlkv) measured that our meter command frames carry the wrong two-byte header, so the meter never accepted any of them and has been sitting in its own power-on auto mode the whole time ([issue #15](https://github.com/DavidClawson/OpenScope-2C53T/issues/15)). DC Voltage appeared to work because auto mode does DC Voltage. Fix in flight.
 - It is validated on **one physical unit**. Nobody has run it on a second 2C53T.
 - **It is not the default `make guest` boot path yet.** Folding it in is on the roadmap.
 

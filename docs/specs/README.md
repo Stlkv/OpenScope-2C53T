@@ -53,7 +53,7 @@ concrete.
 
 | Feature | Stage | Spec | Next |
 |---|---|---|---|
-| Multimeter in the scope build | S1 (coldtrace, **DCV only**) | [meter-in-the-scope-build](meter/meter-in-the-scope-build.md) | Coexistence is done (EXP-23). Next: make `fpga_set_meter_mode()` run in coldtrace so the other 10 submodes are reachable at all — today they move the label and nothing else |
+| Multimeter in the scope build | S1 (coldtrace, **DCV only**) | [meter-in-the-scope-build](meter/meter-in-the-scope-build.md) | Coexistence is done (EXP-23); submodes are now *reachable* (EXP-24). Next: the **TX frame header** — Stlkv measured that frames must start `AA 55`, ours start `00 00`, so no submode command has ever been accepted (#15). Reachable was never acceptance, and we had no instrument that could tell them apart |
 | Manual range lock | S-none | — | Wishlist Tier 1 #2; spec after coexistence reaches S2 |
 | DCV >10 V | S1 (known-wrong) | — | Decimal-latch bug documented since 2026-04-04; folds into the coexistence spec's S4 |
 | Fuse current tester | S1 | — | Unvalidated against known loads |

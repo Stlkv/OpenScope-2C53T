@@ -2,8 +2,13 @@
 
 **Track:** meter
 **Stage now:** **S1 in `guest-coldtrace`, DC Voltage only.** Coexistence works —
-scope and meter run in one image at the same time (EXP-23, 2026-09-04). Every
-other meter function is unreachable. This is issue #15.
+scope and meter run in one image at the same time (EXP-23, 2026-09-04), and the
+submodes became *reachable* in EXP-24 (2026-09-04). They are still not
+*accepted*: Stlkv measured on unit #2 that meter TX frames must begin `AA 55`
+and ours begin `00 00`, so the meter SoC has discarded every command this
+project has ever sent and has been running its own power-on auto mode
+throughout (2026-09-07, issue #15). DC Voltage read correctly because auto mode
+measures DC Voltage. This is issue #15.
 **Champion:** —
 
 ## What it is
@@ -68,22 +73,35 @@ What remains is ordinary firmware work on our side:
 | To reach | Criterion (checkable) |
 |---|---|
 | ~~S1 (in coldtrace)~~ | **MET** — EXP-05 (2026-08-17), re-confirmed EXP-23 (2026-09-04). DCV tracks a bench source in `guest-coldtrace` with the scope still capturing. |
-| S1 (all submodes) | `fpga_set_meter_mode()` runs in this build, and a submode change is observable on the hardware: switching DCV → Resistance moves the analog frontend posture (`gpio scan` diff non-empty) *and* changes the TX frame. Both halves, with the `fpga scope range` positive control from EXP-23 in the same session. |
+| ~~S1 (all submodes, *reachable*)~~ | **MET** — EXP-24 (2026-09-04). `fpga_set_meter_mode()` runs here; DCV → Resistance moves the frontend posture (`gpio scan` diff non-empty) *and* changes the TX frame. |
+| S1 (all submodes, *accepted*) | **`echo_frames` must move off zero** on a submode change, and the echoed byte must match the word we sent. Then a non-DCV submode produces a reading that tracks a known load. ⚠ **This criterion replaces an earlier one that EXP-24 met while nothing worked.** The old wording accepted "frontend moves and the frame changes" as proof a submode works; with the header wrong, both halves were true and not one command was ever accepted. An acceptance criterion with no acknowledgement channel in it cannot distinguish a working submode from an ignored one. |
 | S2 | DCV 0–9 V and resistance re-verified within a few percent against a bench DMM *post-config*, same session writeup. |
 | S3 | Host regression over captured USART frames for the decoder (exists in part); on-device `bench.py` acceptance: scope→meter→scope cycle with a live reading at each stop. |
 | S4 | Range lock (wishlist #2), >10 V dp fix, honest trailing digits (wishlist #4) — each promoted through its own spec. |
 
 ## Open questions
 
-1. **Why does `echo_frames` stay 0?** Data frames (`0x5A 0xA5`) arrive
-   continuously; echo frames (`0xAA 0x55`) never do, on any build since
-   EXP-05. Until this is understood we have no acknowledgement channel, so a
-   submode command that is silently ignored looks exactly like one that worked.
-   Cheapest next measurement, and it gates the S1-all-submodes criterion.
-2. Once `fpga_set_meter_mode()` runs here, do the non-DCV submodes actually
-   work — or only become reachable? Nothing on record answers this; EXP-05 and
-   EXP-23 both tested DCV alone.
-3. Should `FPGA_WARM_HANDOFF_TEST` be split? Its two meanings are independent,
-   and every meter no-op is attached to the wrong one. Gating the no-ops on
-   `!FPGA_CONFIG_B` is the candidate — a cold-configured build is not a warm
-   handoff and has no reason to inherit its restraint.
+1. ~~**Why does `echo_frames` stay 0?**~~ **ANSWERED 2026-09-07 by Stlkv
+   (issue #15), measured on unit #2.** Meter TX frames must begin `AA 55`;
+   `usart2_send_cmd()` leaves bytes 0 and 1 at zero. With `00 00` the SoC stays
+   silent and holds its power-on auto mode; with `AA 55` it echoes every
+   accepted word. Open since EXP-05, and carried in our own source with a wrong
+   explanation blaming a `0xAA` at byte[8] for checksum failures.
+2. ~~Do the non-DCV submodes actually work, or only become reachable?~~
+   **ANSWERED, negatively.** EXP-24 established reachable. The header result
+   establishes that none was ever accepted, so the answer for every session up
+   to 2026-09-07 is that they did not work and could not have.
+3. ~~Should `FPGA_WARM_HANDOFF_TEST` be split?~~ **DONE** — `56b258c` split it
+   on `FPGA_METER_SUBMODES`.
+4. **Which word does each submode actually need?** Stlkv's logger recovered the
+   full twelve-word stock map. Cross-checked against
+   `fpga_meter_stock_mode_for_submode()`, **10 of our 11 submodes send the
+   wrong word**; only Temperature is right, and by coincidence. Submode 0
+   "DCV" sends `0x14`, which is stock's *Auto*. The eight bytes we recovered by
+   reverse engineering all appear in his twelve, so the extraction was sound and
+   the function assignment was not. His four extra words (`0x0D`, `0x0E`,
+   `0x15`, `0x16`) are exactly the ones whose absence forced the shared-slot
+   fallbacks in `fpga_meter_plan.c`, so those can go.
+5. **Does the header result replicate on unit #1?** Not yet measured here. The
+   positive control is `echo_frames` moving off zero, which this project has
+   never once observed.
