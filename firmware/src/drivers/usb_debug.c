@@ -2257,6 +2257,44 @@ static void cmd_fpga_usart(const char *args)
     usb_send_str(buf);
 }
 
+/* `meter hdr [on|off]` — EXP-25 (issue #15). A/B the meter TX frame header
+ * between 00 00 (what this project has always sent) and AA 55 (what Stlkv
+ * measured the meter SoC requires). Prints the echo ladder every time, so the
+ * A/B is one command and the numbers are on the same screen as the setting.
+ *
+ * Read the ladder from the bottom up when it stays at zero:
+ *   rx_bytes    moving => the RX ISR runs at all
+ *   data_frames moving => the frame sync + parser work (POSITIVE CONTROL:
+ *                         this is the 5A A5 branch, proven every session)
+ *   echo_start  moving => an 0xAA actually arrived and started a frame
+ *   echo_hdr    moving => the 0x55 second byte confirmed it
+ *   echo_valid  moving => byte[3] matched our cmd and byte[7] was 0xAA
+ *   echo_bad    moving => an echo arrived but failed that validation
+ * echo_start == 0 with data_frames climbing puts the fault on the WIRE, not
+ * in our parser. That distinction is the whole point of printing all six. */
+static void cmd_meter_hdr(const char *args)
+{
+    while (*args == ' ') args++;
+    if      (strncmp(args, "on",  2) == 0) fpga_meter_tx_header_set(true);
+    else if (strncmp(args, "off", 3) == 0) fpga_meter_tx_header_set(false);
+    else if (*args) { usb_send_str("usage: meter hdr [on|off]\r\n"); return; }
+
+    bool aa55 = fpga_meter_tx_header_get();
+    usb_debug_printf(
+        "meter TX header: %s  (frame[0]=%02X frame[1]=%02X)\r\n"
+        "  tx_count=%u rx_bytes=%u data_frames=%u\r\n"
+        "  echo_start=%u echo_hdr=%u echo_valid=%u echo_bad=%u echo_frames=%u\r\n",
+        aa55 ? "AA 55" : "00 00 (baseline)",
+        aa55 ? 0xAA : 0x00, aa55 ? 0x55 : 0x00,
+        (unsigned)fpga.tx_count, (unsigned)fpga.rx_byte_count,
+        (unsigned)fpga.frame_count,
+        (unsigned)fpga.rx_sync_echo_start_count,
+        (unsigned)fpga.rx_sync_echo_header_count,
+        (unsigned)fpga.rx_echo_valid_count,
+        (unsigned)fpga.rx_echo_bad_count,
+        (unsigned)fpga.echo_count);
+}
+
 /* `fpga rearm [on|off]` — stock's post-read re-arm write (reg 0x01 <- rate idx).
  * Runtime-toggleable so the comparison can be run A/B/A inside one boot: the
  * same probe, the same signal, the same FPGA configuration, one variable. */
@@ -7068,6 +7106,8 @@ static const shell_cmd_t shell_cmds[] = {
           "fpga usart [on|off]             Bring USART2 up post-config; show CTRL1+RX\r\n"),
     CMD_A("fpga rearm", cmd_fpga_rearm, 0,
           "fpga rearm [on|off]             Stock post-read re-arm (reg01) A/B toggle\r\n"),
+    CMD_A("meter hdr", cmd_meter_hdr, 0,
+          "meter hdr [on|off]              Meter TX header 00 00 vs AA 55 (EXP-25) + echo ladder\r\n"),
     CMD_A("fpga rate", cmd_fpga_rate, 0,
           "fpga rate [hexidx]              reg-0x01 rate index the re-arm rewrites\r\n"),
     CMD_V("fpga scope reinit", cmd_fpga_scope_reinit, SC_EXACT,

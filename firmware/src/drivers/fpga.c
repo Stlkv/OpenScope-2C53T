@@ -1164,22 +1164,58 @@ static void fpga_capture_meter_first_rx_latch(void)
 
 /*
  * Build and send a USART command frame (10 bytes).
- * Format: [0][1] [cmd_hi][cmd_lo] [0..0] [checksum]
+ * Format: [hdr0][hdr1] [cmd_hi][cmd_lo] [0..0] [checksum]
  * Checksum = (cmd_hi + cmd_lo) & 0xFF
+ *
+ * THE HEADER IS THE OPEN QUESTION (EXP-25, issue #15). We have always sent
+ * 00 00 here. Stlkv measured on unit #2 (2026-09-07) that the meter SoC
+ * requires AA 55: with AA 55 it echoes every accepted word and switches
+ * function; with 00 00 it stays silent and holds its power-on auto mode.
+ * That would explain `echo_frames` sitting at 0 since EXP-05, and it would
+ * mean every meter reading this project has taken was auto mode.
+ *
+ * Runtime-toggleable (`meter hdr on|off`) so the comparison runs A/B/A inside
+ * one boot: same probe, same cell, same build, ONE variable. It defaults OFF
+ * so the device boots bit-identical to the one that took every earlier
+ * measurement, and so the baseline is a measurement rather than a memory.
  */
-static void usart2_send_cmd(uint8_t cmd_hi, uint8_t cmd_lo)
+static volatile bool meter_tx_header_aa55 = false;
+
+void fpga_meter_tx_header_set(bool aa55) { meter_tx_header_aa55 = aa55; }
+bool fpga_meter_tx_header_get(void)      { return meter_tx_header_aa55; }
+
+/*
+ * THE ONE PLACE A METER TX FRAME IS BUILT.
+ *
+ * It did not used to be. Until 2026-09-12 the ten bytes were assembled
+ * independently in two places — here, and inline in the dvom_TX drain task —
+ * and the two copies even carried the same wrong comment about byte[8].
+ * EXP-25 found this the expensive way: the `meter hdr on` toggle patched this
+ * copy, reported "AA 55" back, and the wire kept sending 00 00, because every
+ * `usart tx` goes through the queue and the task's private copy. The run was
+ * VOID, not negative, and only the `last_tx_frame` readback caught it.
+ *
+ * If you add a third transmit path, call this. Do not assemble bytes.
+ */
+static void meter_build_tx_frame(uint8_t *frame, uint8_t cmd_hi, uint8_t cmd_lo)
 {
-    uint8_t frame[FPGA_TX_FRAME_SIZE] = {0};
-    fpga_record_tx_cmd(cmd_hi, cmd_lo);
-    fpga.tx_count++;
+    memset(frame, 0, FPGA_TX_FRAME_SIZE);
+    if (meter_tx_header_aa55) {
+        frame[0] = 0xAAU;
+        frame[1] = 0x55U;
+    }
     frame[2] = cmd_hi;
     frame[3] = cmd_lo;
-    /* NOTE: byte[8] was previously 0xAA based on protocol doc, but the
-     * stock frame builder does NOT set bytes[4-8] — they carry over from
-     * command dispatchers (0 for simple commands). The 0xAA may have been
-     * causing checksum validation failures on the FPGA side, explaining
-     * zero echo frames. Now matches stock: bytes[4-8] = 0 for basic cmds. */
+    /* bytes[4-8] stay 0: stock's builder does not set them for simple commands. */
     frame[9] = (cmd_lo + cmd_hi) & 0xFF;
+}
+
+static void usart2_send_cmd(uint8_t cmd_hi, uint8_t cmd_lo)
+{
+    uint8_t frame[FPGA_TX_FRAME_SIZE];
+    fpga_record_tx_cmd(cmd_hi, cmd_lo);
+    fpga.tx_count++;
+    meter_build_tx_frame(frame, cmd_hi, cmd_lo);
     fpga_record_tx_frame(frame);
     usart2_send_frame(frame);
 }
@@ -2395,18 +2431,17 @@ static void fpga_usart_tx_task(void *pv)
         uint8_t cmd_lo = cmd_item & 0xFF;
         uint8_t cmd_hi = (cmd_item >> 8) & 0xFF;
 
-        /* Build TX frame.
-         * Stock firmware TX buffer retains bytes [4]-[8] from dispatch
-         * handlers — for simple commands they're all 0 (BSS init).
-         * We previously hardcoded byte[8]=0xAA based on protocol doc,
-         * but this likely caused checksum failures (zero echo frames). */
+        /* Build TX frame through the SHARED builder. This block used to
+         * assemble the bytes itself, which is how EXP-25 came to report a
+         * header change that never reached the wire. */
         fpga.tx_count++;
         fpga_record_tx_cmd(cmd_hi, cmd_lo);
         fpga.tx_index = 0;
-        memset((void *)fpga.tx_frame, 0, FPGA_TX_FRAME_SIZE);
-        fpga.tx_frame[2] = cmd_hi;
-        fpga.tx_frame[3] = cmd_lo;
-        fpga.tx_frame[9] = (cmd_lo + cmd_hi) & 0xFF;
+        {
+            uint8_t frame[FPGA_TX_FRAME_SIZE];
+            meter_build_tx_frame(frame, cmd_hi, cmd_lo);
+            memcpy((void *)fpga.tx_frame, frame, FPGA_TX_FRAME_SIZE);
+        }
         fpga_record_tx_frame((const uint8_t *)fpga.tx_frame);
 
         /* Enable TX interrupt — ISR pumps all 10 bytes */

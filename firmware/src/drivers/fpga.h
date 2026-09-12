@@ -669,6 +669,12 @@ BaseType_t fpga_send_cmd(uint8_t cmd_high, uint8_t cmd_low);
  */
 bool fpga_usart_tx_task_exists(void);
 
+/* Meter TX frame header A/B (EXP-25, issue #15). Default false = 00 00, the
+ * header every measurement before 2026-09-12 was taken with. True = AA 55,
+ * which Stlkv measured as the header the meter SoC actually requires. */
+void fpga_meter_tx_header_set(bool aa55);
+bool fpga_meter_tx_header_get(void);
+
 /*
  * Send one 2-byte command frame with the POLLED byte-level path, bypassing
  * the TX queue and the drain task entirely. Blocking (10 bytes at 9600 baud
