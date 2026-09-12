@@ -2289,7 +2289,8 @@ static void cmd_meter_hdr(const char *args)
     usb_debug_printf(
         "meter TX header: %s  (frame[0]=%02X frame[1]=%02X)\r\n"
         "  tx_count=%u rx_bytes=%u data_frames=%u\r\n"
-        "  echo_start=%u echo_hdr=%u echo_valid=%u echo_bad=%u echo_frames=%u\r\n",
+        "  echo_start=%u echo_hdr=%u echo_valid=%u echo_bad=%u echo_frames=%u\r\n"
+        "  transition: wake_ms=%u tries=%u ok=%u | unconfirmed=%u wake_timeouts=%u\r\n",
         aa55 ? "AA 55 (default)" : "00 00 (legacy, negative control)",
         aa55 ? 0xAA : 0x00, aa55 ? 0x55 : 0x00,
         (unsigned)fpga.tx_count, (unsigned)fpga.rx_byte_count,
@@ -2298,7 +2299,12 @@ static void cmd_meter_hdr(const char *args)
         (unsigned)fpga.rx_sync_echo_header_count,
         (unsigned)fpga.rx_echo_valid_count,
         (unsigned)fpga.rx_echo_bad_count,
-        (unsigned)fpga.echo_count);
+        (unsigned)fpga.echo_count,
+        (unsigned)fpga.meter_soc_wake_ms,
+        (unsigned)fpga.meter_selector_attempts,
+        (unsigned)fpga.meter_selector_confirmed,
+        (unsigned)fpga.meter_selector_unconfirmed_total,
+        (unsigned)fpga.meter_soc_wake_timeouts);
 }
 
 /* `fpga rearm [on|off]` — stock's post-read re-arm write (reg 0x01 <- rate idx).

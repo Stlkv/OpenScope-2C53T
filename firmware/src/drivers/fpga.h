@@ -237,6 +237,14 @@ typedef struct {
      * its echo, which made good echoes fail validation (EXP-27). */
     volatile uint8_t  last_obeyed_tx_lo;
     volatile bool     last_obeyed_tx_valid;
+    /* Last meter transition (EXP-205): ms from PC11 back up to the SoC's first
+     * data frame (0xFFFF = timed out), selector sends until its echo, whether
+     * it was confirmed, and how many transitions ended unconfirmed. */
+    volatile uint16_t meter_soc_wake_ms;
+    volatile uint8_t  meter_selector_attempts;
+    volatile uint8_t  meter_selector_confirmed;
+    volatile uint16_t meter_selector_unconfirmed_total;
+    volatile uint16_t meter_soc_wake_timeouts;
     volatile uint8_t  tx_frame_history[FPGA_TX_FRAME_HISTORY][FPGA_TX_FRAME_SIZE];
     volatile uint16_t tx_frame_history_tx_count[FPGA_TX_FRAME_HISTORY];
     volatile uint8_t  tx_frame_history_head;

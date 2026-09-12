@@ -265,6 +265,20 @@ static void fpga_meter_reset_transport(void)
 
     USART2->ctrl1 = (ctrl1 | USART_CTRL1_UEN | USART_CTRL1_RDBFIEN) &
                     ~USART_CTRL1_TDBEIEN;
+    /*
+     * Do not inherit a dead transceiver (EXP-205, unit #2). On a silent-scope
+     * build, scope entry parks USART2 with ctrl1 = 0 and the IRQ masked. When
+     * a meter transition runs before fpga_set_meter_mux(true) has re-armed it
+     * -- a race the shell's `mode meter` loses about one time in three -- the
+     * restore above re-enables UEN and RDBFIEN on a ctrl1 that had TE and RE
+     * clear, with the NVIC line still masked: TX count climbs, the wire is
+     * dark, the SoC never speaks, and every selector retry times out
+     * (measured: CTRL1 0x20A0 in the failed state, 0x202C in the good one).
+     * The transition is about to talk to the SoC, so it owns the transceiver.
+     */
+    USART2->ctrl1 |= (1U << 2) | (1U << 3);   /* RE, TE */
+    NVIC_SetPriority(USART2_IRQn, 5);
+    NVIC_EnableIRQ(USART2_IRQn);
 
     if (rx_task_handle != NULL) vTaskResume(rx_task_handle);
     if (tx_task_handle != NULL) vTaskResume(tx_task_handle);
@@ -6138,6 +6152,85 @@ void fpga_enter_siggen_mode(void)
     GPIOE->clr = (1U << 6);   /* PE6 LOW */
 }
 
+/*
+ * THE SoC RESTARTS ON EVERY TRANSITION, AND IT IS DEAF WHILE IT BOOTS.
+ *
+ * Measured on unit #2 with the AA 55 header live (2026-09-13, EXP-205):
+ * fpga_meter_reset_transport() drops PC11, and the meter SoC comes back in its
+ * power-on Auto state -- the frame after a transition is the boot-time "Auto"
+ * text again, whatever function had been selected before. Then the selector
+ * sent 20 ms later is swallowed: `AA 55 05 0B` left the wire (tx_control
+ * history) and no echo ever came back, while not one data frame arrived
+ * during the whole sequence (transition history data=558..558). The same word
+ * typed by hand a second later was echoed at once and switched the function.
+ *
+ * So the transition waits for the SoC to speak before it commands it, and it
+ * does not take the selector on trust: it re-sends until the echo confirms it.
+ * The wait feeds unobeyed keepalive traffic, since a silent wire is the other
+ * documented way to get no frames (EXP-26). Numbers are exported for
+ * `meter hdr`, so the wake time and the retry count are measurements, not
+ * assumptions.
+ */
+#define FPGA_METER_SOC_WAKE_TIMEOUT_MS   3000u  /* measured wake 1380 ms; one
+                                                   * boot->meter entry missed 1500 */
+#define FPGA_METER_SOC_WAKE_SETTLE_MS     200u
+#define FPGA_METER_SOC_WAKE_POLL_MS        10u
+#define FPGA_METER_SELECTOR_ECHO_WAIT_MS  300u
+#define FPGA_METER_SELECTOR_TRIES           5u
+
+static void fpga_meter_wait_for_soc(uint16_t frame_before)
+{
+    uint32_t waited = 0;
+    uint32_t since_keepalive = 0;
+
+    fpga.meter_soc_wake_ms = 0xFFFFu;  /* timeout until proven otherwise */
+    while (waited < FPGA_METER_SOC_WAKE_TIMEOUT_MS) {
+        if (fpga.frame_count != frame_before) {
+            fpga.meter_soc_wake_ms = (uint16_t)waited;
+            break;
+        }
+        if (waited + FPGA_METER_SOC_WAKE_POLL_MS >= FPGA_METER_SOC_WAKE_TIMEOUT_MS) {
+            fpga.meter_soc_wake_timeouts++;
+        }
+        if (since_keepalive >= 250u) {
+            (void)fpga_send_cmd_unobeyed(0x05, FPGA_CMD_METER_START);
+            since_keepalive = 0;
+        }
+        fpga_scope_delay_ms(FPGA_METER_SOC_WAKE_POLL_MS);
+        waited += FPGA_METER_SOC_WAKE_POLL_MS;
+        since_keepalive += FPGA_METER_SOC_WAKE_POLL_MS;
+    }
+    fpga_scope_delay_ms(FPGA_METER_SOC_WAKE_SETTLE_MS);
+}
+
+/* Send the selector OBEYED and wait for its echo; retry a bounded number of
+ * times. Leaves the outcome in fpga.meter_selector_attempts / _confirmed. */
+static void fpga_send_selector_confirmed(uint16_t word, uint32_t settle_ms)
+{
+    fpga.meter_selector_attempts = 0;
+    fpga.meter_selector_confirmed = 0;
+    for (uint8_t attempt = 0; attempt < FPGA_METER_SELECTOR_TRIES; attempt++) {
+        uint16_t echo_before = fpga.rx_echo_valid_count;
+        uint32_t waited = 0;
+
+        fpga.meter_selector_attempts++;
+        fpga_wire_send_word(word, 0);
+        while (waited < FPGA_METER_SELECTOR_ECHO_WAIT_MS) {
+            if (fpga.rx_echo_valid_count != echo_before) {
+                fpga.meter_selector_confirmed = 1;
+                break;
+            }
+            fpga_scope_delay_ms(FPGA_METER_SOC_WAKE_POLL_MS);
+            waited += FPGA_METER_SOC_WAKE_POLL_MS;
+        }
+        if (fpga.meter_selector_confirmed) break;
+    }
+    if (!fpga.meter_selector_confirmed) {
+        fpga.meter_selector_unconfirmed_total++;
+    }
+    fpga_scope_delay_ms(settle_ms);
+}
+
 /* Helper: send the stock PC7-gated command tail (shared by meter modes). */
 static void fpga_timed_send_probe_detect(uint32_t delay_ms)
 {
@@ -6197,7 +6290,7 @@ static void fpga_send_meter_mode_sequence(uint8_t submode)
      * selector, and 0x0509 puts the SoC's display into a state that is not a
      * measurement. Obeyed, either would undo the selector a few ms later.
      */
-    fpga_wire_send_word(plan.selector_word, plan.settle_ms);
+    fpga_send_selector_confirmed(plan.selector_word, plan.settle_ms);
     if (plan.has_probe_detect) {
         fpga_timed_send_probe_detect(10);
     }
@@ -6245,6 +6338,7 @@ static void fpga_apply_meter_transition(uint8_t submode, bool wake_preamble)
     fpga_set_meter_frontend_for_submode(submode);
     actual_gpio = fpga_meter_mux_gpio_mask_live();
     fpga_scope_delay_ms(plan.settle_ms);
+    fpga_meter_wait_for_soc(frame_before);
     fpga_send_meter_mode_sequence(submode);
     fpga_record_meter_transition_snapshot(submode, &plan, planned_gpio,
                                           actual_gpio, tx_before, frame_before);
