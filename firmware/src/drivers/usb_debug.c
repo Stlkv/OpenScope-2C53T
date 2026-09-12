@@ -550,9 +550,13 @@ static void fpga_stock_diag_print(void)
     usb_send_str("\r\n");
 }
 
+/* Shell replays of stock's scope word stream (`fpga scope entry/freq/trigger`).
+ * Unobeyed, like fpga.c's own scope sequences: these words have always gone
+ * out 00 00, and what the meter SoC does with an AA 55 frame whose high byte
+ * is a scope parameter has never been measured. */
 static bool fpga_send_cmd_timed(uint8_t cmd_hi, uint8_t cmd_lo, uint32_t delay_ms)
 {
-    BaseType_t ok = fpga_send_cmd(cmd_hi, cmd_lo);
+    BaseType_t ok = fpga_send_cmd_unobeyed(cmd_hi, cmd_lo);
     if (ok != pdTRUE) {
         usb_debug_printf("Queue full at %02X %02X\r\n", cmd_hi, cmd_lo);
         return false;
@@ -2258,9 +2262,11 @@ static void cmd_fpga_usart(const char *args)
 }
 
 /* `meter hdr [on|off]` — EXP-25 (issue #15). A/B the meter TX frame header
- * between 00 00 (what this project has always sent) and AA 55 (what Stlkv
- * measured the meter SoC requires). Prints the echo ladder every time, so the
- * A/B is one command and the numbers are on the same screen as the setting.
+ * between AA 55 (the default since the word table was corrected; what the
+ * meter SoC requires, measured on two units) and 00 00 (what this project sent
+ * before 2026-09-12, kept as the negative control: a transition under 00 00
+ * must produce zero echoes). Prints the echo ladder every time, so the A/B is
+ * one command and the numbers are on the same screen as the setting.
  *
  * Read the ladder from the bottom up when it stays at zero:
  *   rx_bytes    moving => the RX ISR runs at all
@@ -2284,7 +2290,7 @@ static void cmd_meter_hdr(const char *args)
         "meter TX header: %s  (frame[0]=%02X frame[1]=%02X)\r\n"
         "  tx_count=%u rx_bytes=%u data_frames=%u\r\n"
         "  echo_start=%u echo_hdr=%u echo_valid=%u echo_bad=%u echo_frames=%u\r\n",
-        aa55 ? "AA 55" : "00 00 (baseline)",
+        aa55 ? "AA 55 (default)" : "00 00 (legacy, negative control)",
         aa55 ? 0xAA : 0x00, aa55 ? 0x55 : 0x00,
         (unsigned)fpga.tx_count, (unsigned)fpga.rx_byte_count,
         (unsigned)fpga.frame_count,
@@ -4820,7 +4826,9 @@ static void cmd_meter_mux_arms(const char *args)
     }
 
     vTaskDelay(pdMS_TO_TICKS(settle_ms));
-    (void)fpga_send_cmd(0x05, FPGA_CMD_METER_START);
+    /* Unobeyed: obeyed 0x0509 moves the SoC's display state, and this trace
+     * is about the relays, not about commanding the meter. */
+    (void)fpga_send_cmd_unobeyed(0x05, FPGA_CMD_METER_START);
     vTaskDelay(pdMS_TO_TICKS(350));
 
     usb_send_str("=== DMM Mux Arms Trace ===\r\n");
@@ -4860,7 +4868,9 @@ static void cmd_meter_boot_sequence(const char *args)
     }
 
     vTaskDelay(pdMS_TO_TICKS(settle_ms));
-    (void)fpga_send_cmd(0x05, FPGA_CMD_METER_START);
+    /* Unobeyed: obeyed 0x0509 moves the SoC's display state, and this trace
+     * is about the relays, not about commanding the meter. */
+    (void)fpga_send_cmd_unobeyed(0x05, FPGA_CMD_METER_START);
     vTaskDelay(pdMS_TO_TICKS(350));
 
     usb_send_str("=== DMM Boot-Order Trace ===\r\n");
@@ -4920,7 +4930,9 @@ static void cmd_meter_pc11_timing(const char *args)
     }
 
     vTaskDelay(pdMS_TO_TICKS(high_ms));
-    (void)fpga_send_cmd(0x05, FPGA_CMD_METER_START);
+    /* Unobeyed: obeyed 0x0509 moves the SoC's display state, and this trace
+     * is about the relays, not about commanding the meter. */
+    (void)fpga_send_cmd_unobeyed(0x05, FPGA_CMD_METER_START);
     vTaskDelay(pdMS_TO_TICKS(350));
 
     usb_send_str("=== DMM PC11 Timing Trace ===\r\n");
@@ -5381,9 +5393,11 @@ static void cmd_spi3_acqtest(void)
 
     /* --- Test 3: USART2 scope-arm then SPI3 read --- */
     usb_send_str("\r\n-- T3: USART2 arm (0x20,0x21) → SPI3 read --\r\n");
-    fpga_send_cmd(0x00, 0x20);  /* Scope timebase cmd */
+    /* Unobeyed (00 00): the SoC's reaction to AA 55 frames with a 0x00 high
+     * byte is unmeasured, and this test is about SPI3, not the meter. */
+    fpga_send_cmd_unobeyed(0x00, 0x20);  /* Scope timebase cmd */
     vTaskDelay(pdMS_TO_TICKS(30));
-    fpga_send_cmd(0x00, 0x21);  /* Scope trigger mode cmd */
+    fpga_send_cmd_unobeyed(0x00, 0x21);  /* Scope trigger mode cmd */
     vTaskDelay(pdMS_TO_TICKS(30));
 
     usb_debug_printf("PC0 after arm: %d\r\n", (GPIOC->idt & (1 << 0)) ? 1 : 0);
@@ -5401,18 +5415,18 @@ static void cmd_spi3_acqtest(void)
     /* --- Test 4: Full stock scope entry (0x01..0x08, 0x0B..0x11, 0x20, 0x21) --- */
     usb_send_str("\r\n-- T4: Full scope entry → SPI3 read --\r\n");
     /* Reset sequence */
-    fpga_send_cmd(0x00, 0x01);  vTaskDelay(pdMS_TO_TICKS(10));
-    fpga_send_cmd(0x00, 0x02);  vTaskDelay(pdMS_TO_TICKS(10));
-    fpga_send_cmd(0x00, 0x03);  vTaskDelay(pdMS_TO_TICKS(10));
-    fpga_send_cmd(0x00, 0x0B);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH1 gain */
-    fpga_send_cmd(0x00, 0x0C);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH1 offset */
-    fpga_send_cmd(0x00, 0x0D);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH2 gain */
-    fpga_send_cmd(0x00, 0x0E);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH2 offset */
-    fpga_send_cmd(0x00, 0x0F);  vTaskDelay(pdMS_TO_TICKS(10));  /* Coupling */
-    fpga_send_cmd(0x00, 0x10);  vTaskDelay(pdMS_TO_TICKS(10));  /* Trigger */
-    fpga_send_cmd(0x00, 0x11);  vTaskDelay(pdMS_TO_TICKS(10));  /* Timebase */
-    fpga_send_cmd(0x00, 0x20);  vTaskDelay(pdMS_TO_TICKS(10));  /* Acq mode */
-    fpga_send_cmd(0x00, 0x21);  vTaskDelay(pdMS_TO_TICKS(50));  /* Trigger arm */
+    fpga_send_cmd_unobeyed(0x00, 0x01);  vTaskDelay(pdMS_TO_TICKS(10));
+    fpga_send_cmd_unobeyed(0x00, 0x02);  vTaskDelay(pdMS_TO_TICKS(10));
+    fpga_send_cmd_unobeyed(0x00, 0x03);  vTaskDelay(pdMS_TO_TICKS(10));
+    fpga_send_cmd_unobeyed(0x00, 0x0B);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH1 gain */
+    fpga_send_cmd_unobeyed(0x00, 0x0C);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH1 offset */
+    fpga_send_cmd_unobeyed(0x00, 0x0D);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH2 gain */
+    fpga_send_cmd_unobeyed(0x00, 0x0E);  vTaskDelay(pdMS_TO_TICKS(10));  /* CH2 offset */
+    fpga_send_cmd_unobeyed(0x00, 0x0F);  vTaskDelay(pdMS_TO_TICKS(10));  /* Coupling */
+    fpga_send_cmd_unobeyed(0x00, 0x10);  vTaskDelay(pdMS_TO_TICKS(10));  /* Trigger */
+    fpga_send_cmd_unobeyed(0x00, 0x11);  vTaskDelay(pdMS_TO_TICKS(10));  /* Timebase */
+    fpga_send_cmd_unobeyed(0x00, 0x20);  vTaskDelay(pdMS_TO_TICKS(10));  /* Acq mode */
+    fpga_send_cmd_unobeyed(0x00, 0x21);  vTaskDelay(pdMS_TO_TICKS(50));  /* Trigger arm */
 
     usb_debug_printf("PC0 after full entry: %d\r\n", (GPIOC->idt & (1 << 0)) ? 1 : 0);
 
@@ -7107,7 +7121,7 @@ static const shell_cmd_t shell_cmds[] = {
     CMD_A("fpga rearm", cmd_fpga_rearm, 0,
           "fpga rearm [on|off]             Stock post-read re-arm (reg01) A/B toggle\r\n"),
     CMD_A("meter hdr", cmd_meter_hdr, 0,
-          "meter hdr [on|off]              Meter TX header 00 00 vs AA 55 (EXP-25) + echo ladder\r\n"),
+          "meter hdr [on|off]              Meter TX header AA 55 (default) vs 00 00 (EXP-25) + echo ladder\r\n"),
     CMD_A("fpga rate", cmd_fpga_rate, 0,
           "fpga rate [hexidx]              reg-0x01 rate index the re-arm rewrites\r\n"),
     CMD_V("fpga scope reinit", cmd_fpga_scope_reinit, SC_EXACT,
