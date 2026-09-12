@@ -1,7 +1,7 @@
 # Spec: Multimeter alive in the scope build
 
 **Track:** meter
-**Stage now:** **S1 in `guest-coldtrace`, DC Voltage only.** Coexistence works —
+**Stage now:** **S1 in `guest-coldtrace`, all submodes accepted** (2026-09-12). Coexistence works —
 scope and meter run in one image at the same time (EXP-23, 2026-09-04), and the
 submodes became *reachable* in EXP-24 (2026-09-04). They are still not
 *accepted*: Stlkv measured on unit #2 that meter TX frames must begin `AA 55`
@@ -74,8 +74,8 @@ What remains is ordinary firmware work on our side:
 |---|---|
 | ~~S1 (in coldtrace)~~ | **MET** — EXP-05 (2026-08-17), re-confirmed EXP-23 (2026-09-04). DCV tracks a bench source in `guest-coldtrace` with the scope still capturing. |
 | ~~S1 (all submodes, *reachable*)~~ | **MET** — EXP-24 (2026-09-04). `fpga_set_meter_mode()` runs here; DCV → Resistance moves the frontend posture (`gpio scan` diff non-empty) *and* changes the TX frame. |
-| S1 (all submodes, *accepted*) | **`echo_frames` must move off zero** on a submode change, and the echoed byte must match the word we sent. Then a non-DCV submode produces a reading that tracks a known load. ⚠ **This criterion replaces an earlier one that EXP-24 met while nothing worked.** The old wording accepted "frontend moves and the frame changes" as proof a submode works; with the header wrong, both halves were true and not one command was ever accepted. An acceptance criterion with no acknowledgement channel in it cannot distinguish a working submode from an ignored one. |
-| S2 | DCV 0–9 V and resistance re-verified within a few percent against a bench DMM *post-config*, same session writeup. |
+| ~~S1 (all submodes, *accepted*)~~ | **MET** — EXP-25/27 (2026-09-12). `echo_frames` moves off zero only with the `AA 55` header (A/B/A/B/A, 3 words per phase, 0/3/0/3/0, all valid), and a commanded non-DCV function reads a known load: 10 kΩ ±5% → 9.775 kΩ, shorted leads → 0.014 Ω. |
+| S2 | DCV 0–9 V and resistance re-verified within a few percent **against a bench DMM** *post-config*, same session writeup. ⚠ **NOT met by EXP-26/27.** Those measured 1.6144 V against a cell and 9.775 kΩ against a ±5% resistor — both inside their bands and physically sensible, but neither is a reference: the resistor is known more loosely than the reading it is checking. Same gap as `SCOPE_CAL_SOURCE_SCALE` on the vertical axis. Needs a trusted meter across the same load in the same session. |
 | S3 | Host regression over captured USART frames for the decoder (exists in part); on-device `bench.py` acceptance: scope→meter→scope cycle with a live reading at each stop. |
 | S4 | Range lock (wishlist #2), >10 V dp fix, honest trailing digits (wishlist #4) — each promoted through its own spec. |
 

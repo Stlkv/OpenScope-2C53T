@@ -53,7 +53,7 @@ concrete.
 
 | Feature | Stage | Spec | Next |
 |---|---|---|---|
-| Multimeter in the scope build | S1 (coldtrace, **DCV only**) | [meter-in-the-scope-build](meter/meter-in-the-scope-build.md) | Coexistence is done (EXP-23); submodes are now *reachable* (EXP-24). Next: the **TX frame header** — Stlkv measured that frames must start `AA 55`, ours start `00 00`, so no submode command has ever been accepted (#15). Reachable was never acceptance, and we had no instrument that could tell them apart |
+| Multimeter in the scope build | **S1** (coldtrace, all submodes *accepted*) | [meter-in-the-scope-build](meter/meter-in-the-scope-build.md) | EXP-25/26/27/28 (2026-09-12): the `AA 55` TX header replicates on unit #1, commanded modes are acknowledged (`echo_frames` non-zero for the first time), 10 kΩ reads 9.775 kΩ, and the scope is undisturbed. **Not S2**: the 10 kΩ is a ±5% part, so it bounds the reading without being a reference. S2 needs a bench DMM across the same load. Next: land Stlkv's decoder (#15 PR 2) and correct the word table |
 | Manual range lock | S-none | — | Wishlist Tier 1 #2; spec after coexistence reaches S2 |
 | DCV >10 V | S1 (known-wrong) | — | Decimal-latch bug documented since 2026-04-04; folds into the coexistence spec's S4 |
 | Fuse current tester | S1 | — | Unvalidated against known loads |
