@@ -8,6 +8,15 @@
 
 The FNIRSI 2C53T is a capable $75 handheld 3-in-1 instrument held back by buggy stock firmware. This project is a complete clean-room firmware rewrite built from reverse engineering the original binary.
 
+> ### 🛑 This firmware is for the FNIRSI **2C53T** only
+>
+> **Do not flash it to a 2C23T, a 2C53P, or any other FNIRSI model.** The boards are close relatives but not interchangeable: different pin assignments, different FPGA transport, different application base address, and a different factory bootloader. Flashing this to the wrong model will not work and, if you follow [First-Time Hardware Setup](#first-time-hardware-setup), it will overwrite that device's factory bootloader with one built for the 2C53T.
+>
+> - **FNIRSI 2C23T** → use [rosenrot00/OpenScope-2C23T](https://github.com/rosenrot00/OpenScope-2C23T), which is written for that hardware.
+> - **Anything else** → there is no open firmware for it yet. Please don't experiment with this one.
+>
+> Check the model printed on the back of your unit before you start. If you have already flashed the wrong device, open an issue — the AT32's ROM DFU mode is unerasable mask ROM, so recovery is almost always possible.
+
 > **🎉 The oscilloscope captures.** As of **2026-08-13**, the `make guest-coldtrace` build cold-boots, configures the Gowin GW1N-UV2 FPGA itself, arms the capture engine, and renders live, probe-responsive waveforms — no stock firmware, no warm handoff, no opening the case. The FPGA configuration problem that owned this project's critical path from April to August is **solved**. [How to see it](#seeing-live-waveforms-today) · [the story](docs/devlog/2026-08-13-cold-boot-to-scope.md) · [issue #18](https://github.com/DavidClawson/OpenScope-2C53T/issues/18)
 
 > ### ⚠️ This is development firmware — don't depend on it for real measurements
@@ -175,6 +184,8 @@ The short version:
 2. Use a jumper wire to bridge 3.3V (from the SWD header near USB-C) to the BOOT0 pull-down resistor (MCU side, near the main chip)
 3. While holding 3.3V on BOOT0, press the pinhole reset button, then release both
 4. Verify ROM DFU: `dfu-util -l` should list `2e3c:df11` with alt interfaces 0 (Internal Flash) and 1 (Option Byte)
+> **⚠ Step 6 is the irreversible-feeling one.** `make flash-all` writes our bootloader over flash address `0x08000000`, replacing the FNIRSI factory IAP bootloader. Before you run it, confirm one last time that the device is a **2C53T** — this is the step that removes a wrong-model device's way back. Everything before it is recoverable by simply not continuing. If you want to keep the stock bootloader entirely, use the [MENU + Power channel](#restoring-stock-or-flashing-via-usb-c-macos--linux) with a `guest` build instead, which never touches `0x08000000`.
+
 5. Set EOPB0 = 0xFE → 224KB SRAM mode (one-time):
    ```bash
    cd firmware

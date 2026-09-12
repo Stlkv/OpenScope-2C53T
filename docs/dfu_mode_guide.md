@@ -1,5 +1,14 @@
 # Entering DFU Mode (First-Time Firmware Flash)
 
+> ## 🛑 2C53T only — check your model first
+>
+> This guide, and everything it flashes, is for the **FNIRSI 2C53T**. It is **not** for the 2C23T, the 2C53P, or any other FNIRSI model. The boards differ in pin assignments, FPGA transport, application base address, and factory bootloader.
+>
+> The step that matters is [`make flash-all`](#first-time-flash-commands), which writes a bootloader over flash address `0x08000000` and **replaces the FNIRSI factory bootloader**. On a wrong-model device that removes the normal way back.
+>
+> - **FNIRSI 2C23T** → [rosenrot00/OpenScope-2C23T](https://github.com/rosenrot00/OpenScope-2C23T) is the open firmware for that hardware. Its images flash through the stock MENU + Power drive and leave the factory bootloader alone.
+> - **Already flashed the wrong model?** Open an issue. ROM DFU lives in unerasable mask ROM, so the flash is always writable and recovery is almost always possible.
+
 The first time you flash custom firmware, you need to enter the AT32's **ROM DFU mode** by pulling the BOOT0 pin high while resetting the MCU. After the initial flash installs the USB HID bootloader, **you'll never need to do this again** — all future updates go over USB-C with the case closed.
 
 > **Two bootloaders, don't mix them up.** This device has two completely separate bootloaders:
@@ -156,6 +165,8 @@ Separate from the ROM DFU path above: the device's **stock bootloader** also acc
 A bad flash is never a brick — re-enter upgrade mode and reflash any image.
 
 ### Full factory restore (recover MENU+Power upgrade mode)
+
+> **The archived image below is a 2C53T bootloader.** Do not flash it to a 2C23T or any other model; it is the wrong device's code and will not give you that device's upgrade mode back.
 
 The stock device has **three** firmware layers, and which ones you have determines whether the MENU+Power upgrade disk works:
 
